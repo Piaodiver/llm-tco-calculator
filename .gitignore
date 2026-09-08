@@ -8,6 +8,8 @@ __pycache__/
 # 本地开发便利文件，含本机绝对路径
 .claude/
 
-# 本地笔记与尚未写完的文档 —— 写完 DECISIONS.md 后删掉下面两行
+# 本地笔记与尚未写完的文档。
+# DECISIONS.md 写完后，删掉它那一行让它进仓库；另两个是本地上下文，一直忽略。
 NOTES.local.md
+PROJECT-CONTEXT.md
 DECISIONS.md
