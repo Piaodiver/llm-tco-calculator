@@ -42,6 +42,28 @@ def test_readme_breakeven_claim_is_217_percent():
         assert rate == pytest.approx(0.217, abs=0.001)
 
 
+def test_breakeven_needs_scaling_before_a_printf_percent_format():
+    """The pricing table renders breakeven with a printf "%.1f%%" format string.
+
+    That format appends a literal % -- it does not scale. Handing it the raw
+    0.217 fraction renders "0.2%", wrong by 100x, in the one table a sceptical
+    reader opens to check the 21.7% claimed in the prose above it. app.py
+    multiplies by 100 for exactly this reason; this pins the arithmetic that
+    fix depends on.
+
+    Note the limit: this asserts the conversion is correct, not that app.py
+    still performs it. Guarding that would mean lifting the row construction
+    out of app.py, which tests deliberately never import (see Decision 2).
+    """
+    for model_id in ("claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"):
+        rate = pricing.get(model_id).cache_breakeven_hit_rate
+        assert f"{rate * 100:.1f}%" == "21.7%"
+        assert f"{rate:.1f}%" == "0.2%"  # the bug this guards against
+
+    fable = pricing.get("claude-fable-5-1").cache_breakeven_hit_rate
+    assert f"{fable * 100:.1f}%" == "20.4%"
+
+
 def test_caching_below_breakeven_is_a_net_loss():
     w = replace(tco.PRESETS["coding_agent"], cache_hit_rate=0.10, use_caching=True)
     result = tco.caching_savings(w, "claude-opus-5")

@@ -280,7 +280,11 @@ with st.expander("Pricing data and assumptions"):
                 "Model": m.label,
                 "Input": m.input, "Output": m.output,
                 "Cache read": m.cache_read, "Cache write (5m)": m.cache_write_5m,
-                "Breakeven hit rate": m.cache_breakeven_hit_rate,
+                # Scaled to percent units on purpose: the column below formats with
+                # a printf "%.1f%%", which appends a literal % rather than scaling.
+                # Passing the raw 0.217 fraction renders "0.2%" -- wrong by 100x, in
+                # the one table a reader opens to check the 21.7% claimed above.
+                "Breakeven hit rate": m.cache_breakeven_hit_rate * 100,
                 "Context": m.context_window,
             }
             for m in pricing.all_models()
