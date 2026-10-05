@@ -180,6 +180,90 @@ def test_model_ranking_is_cheapest_first():
     assert results[0].model_id == "claude-haiku-4-5"
 
 
+def test_cheapest_model_may_be_one_that_cannot_run_the_workload():
+    """Price ranking alone will name a model that does not fit. It must not be
+    the one quoted.
+
+    A 300K prefix exceeds Haiku 4.5's 200K window, but Haiku is still the
+    cheapest row -- the arithmetic is right and the recommendation is
+    impossible. `viable()` is what stands between that row and a headline.
+    """
+    big = replace(tco.PRESETS["coding_agent"], cached_prefix_tokens=300_000)
+    ranked = tco.compare_models(big)
+
+    assert ranked[0].model_id == "claude-haiku-4-5"
+    assert not ranked[0].fits_context
+
+    runnable = tco.viable(ranked)
+    assert runnable[0].model_id == "claude-sonnet-5-5"
+    assert all(b.fits_context for b in runnable)
+    assert len(runnable) == len(ranked) - 1
+
+
+def test_viable_is_empty_when_nothing_fits():
+    """Beyond every window, there is no cheapest option to name at all."""
+    huge = replace(tco.PRESETS["coding_agent"], cached_prefix_tokens=2_000_000)
+    assert tco.viable(tco.compare_models(huge)) == []
+
+
+def test_output_cap_is_checked_separately_from_the_context_window():
+    """Fitting the window is not a green light; the output cap bites first.
+
+    100K of generation sits comfortably inside every 1M context window and
+    exceeds every model's single-response cap. Checking only the window quotes
+    a confident annual figure for a request no model will serve.
+    """
+    # 150K: inside every 1M window, past every model's cap (128K at best).
+    chatty = replace(
+        tco.PRESETS["coding_agent"],
+        cached_prefix_tokens=1_000, variable_input_tokens=1_000, output_tokens=150_000,
+    )
+    b = tco.annual_cost(chatty, "claude-sonnet-5-5")
+
+    assert b.fits_context          # the window is not the problem
+    assert not b.fits_output_limit  # the cap is
+    assert not b.is_runnable
+    assert tco.viable(tco.compare_models(chatty)) == []
+
+
+def test_haiku_output_cap_is_lower_than_the_rest():
+    """64K against 128K -- a workload can be runnable on three models, not four."""
+    # 80K: over Haiku's 64K cap, inside the 128K the other three allow.
+    w = replace(
+        tco.PRESETS["coding_agent"],
+        cached_prefix_tokens=1_000, variable_input_tokens=1_000, output_tokens=80_000,
+    )
+    assert not tco.annual_cost(w, "claude-haiku-4-5").fits_output_limit
+    assert tco.annual_cost(w, "claude-sonnet-5-5").fits_output_limit
+    runnable = {b.model_id for b in tco.viable(tco.compare_models(w))}
+    assert runnable == {"claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"}
+
+
+def test_token_description_speaks_in_pages_not_tokens():
+    """The form is unfillable without this bridge, so pin that it renders."""
+    assert "words" in tco.describe_tokens(8_000, "claude-sonnet-5-5")
+    assert "pages" in tco.describe_tokens(8_000, "claude-sonnet-5-5")
+    # A short reply is sub-page; claiming "0 pages" would read as a bug.
+    assert "pages" not in tco.describe_tokens(100, "claude-sonnet-5-5")
+
+
+def test_token_conversion_is_model_dependent():
+    """Tokenizers differ by generation; the same count is not the same text.
+
+    This is the README's own caveat about cross-generation comparison, applied
+    to the input side: Haiku 4.5 predates the current tokenizer and fits more
+    words into the same number of tokens.
+    """
+    assert tco.words_to_tokens(10_000, "claude-haiku-4-5") < tco.words_to_tokens(
+        10_000, "claude-sonnet-5-5"
+    )
+    # Round-trips back to roughly where it started.
+    for model_id in pricing.MODELS:
+        tokens = tco.words_to_tokens(50_000, model_id)
+        words = tokens * pricing.get(model_id).words_per_token
+        assert words == pytest.approx(50_000, rel=0.01)
+
+
 def test_unknown_model_raises():
     with pytest.raises(KeyError):
         pricing.get("gpt-4")

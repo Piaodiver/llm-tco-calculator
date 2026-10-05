@@ -13,6 +13,10 @@ answer.
 
 ## Three things the model surfaces that are easy to get wrong
 
+Each one is a card on the app's first screen, and each card loads the scenario
+that demonstrates it — the argument should not live only in this README while
+the deployed app shows a bare calculator.
+
 ### 1. Prompt caching costs you money below a ~20% hit rate, whatever the read discount
 
 Caching is usually sold as "90% off your input tokens." That is true of a cache
@@ -134,6 +138,13 @@ shape, and architecture — and priced over a year.
 | Cache hit rate | What fraction of requests find a warm cache |
 | Batch API | Whether the work tolerates asynchronous processing |
 
+Each token field restates itself in words and pages underneath, because nobody
+arrives at a pricing conversation knowing their prompt in tokens — they know it
+as "our claims policy, about forty pages." Without that bridge the form is only
+fillable by people who already have the answer, which is the wrong audience for
+a pre-sales tool. The conversion is a ratio, not a tokenizer, and it differs by
+model generation; the app says so.
+
 The split between cacheable prefix and variable input is the design decision
 that makes the rest work. Collapsing them into one "input tokens" field — which
 is what most calculators do — makes it impossible to model caching honestly,
@@ -178,7 +189,12 @@ limits are unstated is not usable in a procurement conversation.
 
 - **Retries and failures.** Routinely 5–15% on top in production.
 - **Evaluation and monitoring traffic.** Often material, and always forgotten.
-- **The 1-hour cache TTL**, which is priced above the 5-minute rate.
+- **The 1-hour cache TTL**, which is priced above the 5-minute rate — and which
+  is the real answer to the batch-plus-caching problem above, since an hour may
+  outlive a batch queue where five minutes will not.
+- **Fast mode**, priced at 2x standard on the Opus line. It is the other end of
+  the latency-versus-cost axis from the Batch API, and this model prices only
+  one end of it.
 - **Tokenizer differences between model generations.** The same text is not the
   same token count on every model, so a cross-generation comparison of `$/MTok`
   alone is misleading. Count tokens on both before trusting a delta.

@@ -12,7 +12,6 @@ from dataclasses import dataclass, replace
 
 import pricing
 
-DAYS_PER_MONTH = 30.4  # 365 / 12, so monthly * 12 == annual
 DAYS_PER_YEAR = 365
 
 
@@ -64,6 +63,18 @@ class CostBreakdown:
     fits_context: bool
     context_tokens: int
     context_window: int
+
+    # Two separate limits. A request can sit well inside the context window and
+    # still ask for more generation than the model emits in one response, so
+    # fitting the window is not on its own a green light.
+    fits_output_limit: bool
+    output_tokens: int
+    max_output_tokens: int
+
+    @property
+    def is_runnable(self) -> bool:
+        """Whether this model can actually serve the request, on both limits."""
+        return self.fits_context and self.fits_output_limit
 
     @property
     def input_cost(self) -> float:
@@ -123,13 +134,38 @@ def annual_cost(workload: Workload, model_id: str) -> CostBreakdown:
         fits_context=workload.context_tokens <= model.context_window,
         context_tokens=workload.context_tokens,
         context_window=model.context_window,
+        fits_output_limit=workload.output_tokens <= model.max_output_tokens,
+        output_tokens=workload.output_tokens,
+        max_output_tokens=model.max_output_tokens,
     )
 
 
 def compare_models(workload: Workload, model_ids: list[str] | None = None) -> list[CostBreakdown]:
-    """Same workload priced across several models, cheapest first."""
+    """Same workload priced across several models, cheapest first.
+
+    Includes models the workload does not fit -- each row carries its own
+    `fits_context` flag, and a comparison table is the right place to show that
+    a cheaper model exists but is too small. Anything that draws a *conclusion*
+    from this list should filter it through `viable()` first.
+    """
     ids = model_ids or pricing.DISPLAY_ORDER
     return sorted((annual_cost(workload, m) for m in ids), key=lambda b: b.annual)
+
+
+def viable(breakdowns: list[CostBreakdown]) -> list[CostBreakdown]:
+    """Only the models that can actually serve this request.
+
+    Ranking on price alone will happily name a model that physically cannot run
+    the request -- Haiku 4.5's 200K window against a 300K prefix is still the
+    cheapest row in the table. Quoting that as "the cheapest option" is worse
+    than quoting nothing: the arithmetic is right and the recommendation is
+    impossible. Every headline that names a model goes through here.
+
+    Checks both limits. The output cap bites in a different place from the
+    context window -- a short prompt asking for 100K of generation clears the
+    window on every model and the cap on none of them.
+    """
+    return [b for b in breakdowns if b.is_runnable]
 
 
 def caching_savings(workload: Workload, model_id: str) -> dict:
@@ -163,6 +199,37 @@ def batch_savings(workload: Workload, model_id: str) -> dict:
         "annual_savings": delta,
         "savings_pct": delta / sync.annual if sync.annual else 0.0,
     }
+
+
+def describe_tokens(tokens: int, model_id: str) -> str:
+    """Render a token count in units a customer actually knows.
+
+    Nobody arrives at a pricing conversation knowing their prompt in tokens.
+    They know it in pages of policy document, or in the length of a support
+    reply. Without a bridge, the form in front of them is unfillable and the
+    whole tool is for people who already have the answer.
+
+    Deliberately coarse -- words to two significant figures, pages to the
+    nearest half. Precision here would imply a tokenizer, and this is a ratio.
+    """
+    model = pricing.get(model_id)
+    words = tokens * model.words_per_token
+    pages = words / pricing.WORDS_PER_PAGE
+
+    if words < 1000:
+        words_text = f"{round(words / 10) * 10:,.0f} words"
+    else:
+        words_text = f"{words / 1000:.1f}K words".replace(".0K", "K")
+
+    if pages < 0.5:
+        return f"≈ {words_text}"
+    rounded = round(pages * 2) / 2 if pages < 10 else round(pages)
+    return f"≈ {words_text} · {rounded:,g} page{'' if rounded == 1 else 's'}"
+
+
+def words_to_tokens(words: int, model_id: str) -> int:
+    """The inverse: what a document of this length costs you in tokens."""
+    return round(words / pricing.get(model_id).words_per_token)
 
 
 def cost_per_request(workload: Workload, model_id: str) -> float:

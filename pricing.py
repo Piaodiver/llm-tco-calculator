@@ -37,9 +37,28 @@ PER_MTOK = 1_000_000
 BATCH_DISCOUNT = 0.50
 
 
+# Rough words-per-token for English prose, taken from the context-window note
+# on the models overview: 1M tokens is about 555K words on the current
+# tokenizer (introduced with Opus 4.7), about 750K on the generation before it.
+#
+# This exists so that someone who knows their documents in pages can fill in
+# the form at all. It is an order-of-magnitude aid, not a tokenizer -- code,
+# tables, and non-English text all land well outside it. The app says so.
+WORDS_PER_TOKEN_CURRENT = 0.555
+WORDS_PER_TOKEN_LEGACY = 0.750
+
+# A page of single-spaced prose. Arbitrary but stated, which beats a number
+# that is arbitrary and hidden.
+WORDS_PER_PAGE = 500
+
+
 @dataclass(frozen=True)
 class Model:
-    """Per-token prices for one model, in USD per million tokens."""
+    """Per-token prices and the model facts the cost model needs.
+
+    Prices come from SOURCE_URL; context_window, max_output_tokens and
+    words_per_token come from CONTEXT_SOURCE_URL.
+    """
 
     id: str
     label: str
@@ -48,6 +67,11 @@ class Model:
     cache_read: float
     cache_write_5m: float
     context_window: int
+    # The synchronous Messages API output cap. Separate from the context
+    # window, and smaller: a request can fit the window and still ask for more
+    # generation than the model will produce in one response.
+    max_output_tokens: int
+    words_per_token: float
 
     @property
     def cache_read_ratio(self) -> float:
@@ -86,6 +110,8 @@ MODELS = {
         cache_read=0.20,
         cache_write_5m=5.00,
         context_window=1_000_000,
+        max_output_tokens=128_000,
+        words_per_token=WORDS_PER_TOKEN_CURRENT,
     ),
     "claude-sonnet-5-5": Model(
         id="claude-sonnet-5-5",
@@ -95,6 +121,8 @@ MODELS = {
         cache_read=0.20,
         cache_write_5m=2.50,
         context_window=1_000_000,
+        max_output_tokens=128_000,
+        words_per_token=WORDS_PER_TOKEN_CURRENT,
     ),
     "claude-haiku-4-5": Model(
         id="claude-haiku-4-5",
@@ -104,6 +132,8 @@ MODELS = {
         cache_read=0.10,
         cache_write_5m=1.25,
         context_window=200_000,
+        max_output_tokens=64_000,
+        words_per_token=WORDS_PER_TOKEN_LEGACY,
     ),
     "claude-fable-5-1": Model(
         id="claude-fable-5-1",
@@ -113,6 +143,8 @@ MODELS = {
         cache_read=0.25,
         cache_write_5m=12.50,
         context_window=1_000_000,
+        max_output_tokens=128_000,
+        words_per_token=WORDS_PER_TOKEN_CURRENT,
     ),
 }
 
