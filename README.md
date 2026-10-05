@@ -13,7 +13,7 @@ answer.
 
 ## Three things the model surfaces that are easy to get wrong
 
-### 1. Prompt caching costs you money below a 21.7% hit rate
+### 1. Prompt caching costs you money below a ~20% hit rate, whatever the read discount
 
 Caching is usually sold as "90% off your input tokens." That is true of a cache
 *read*. But a cache *write* costs **1.25× a plain input token**, and every miss
@@ -23,14 +23,32 @@ is a write. So caching is a bet on your hit rate, and the bet has a breakeven:
 h · cache_read + (1 − h) · cache_write = input
 ```
 
-Solve for `h` and you get **21.7%** on Haiku 4.5, Sonnet 5, and Opus 5 (the
-read/write ratios are identical across the three), and 20.4% on Fable 5.1.
+| Model | Cache read | Breakeven hit rate |
+|---|---|---|
+| Claude Haiku 4.5 | 10% of input | **21.7%** |
+| Claude Sonnet 5.5 | 10% of input | **21.7%** |
+| Claude Opus 5.5 | 5% of input | **20.8%** |
+| Claude Fable 5.1 | 2.5% of input | **20.4%** |
+
 Below that line, turning caching on makes the bill larger.
 
+The interesting part is how little the read discount moves it. Opus 5.5 reads at
+5% of input — twice as good a discount as Sonnet 5.5's 10% — and buys less than
+a single percentage point of breakeven. Hold the write premium at 1.25× and let
+the read price fall all the way to zero, and the breakeven converges on
+
+```
+h → 0.25 / 1.25 = 20%
+```
+
+**So there is a floor at roughly 20%, and it is set entirely by the write
+premium.** Even a free cache read would not move it. Every "90% off" headline
+describes the half of the mechanism that turns out not to govern the decision.
+
 This matters most exactly where people reach for caching first: **low-volume
-pilots**. A 200-request/day pilot on Opus 5 with a 20K-token prefix and a 15%
-hit rate costs **\$9,143/year with caching on versus \$8,578 with it off** — the
-optimisation loses \$566 a year. The `low_volume_pilot` preset in the app
+pilots**. A 200-request/day pilot on Opus 5.5 with a 20K-token prefix and a 15%
+hit rate costs **\$7,271/year with caching on versus \$6,862 with it off** — the
+optimisation loses \$409 a year. The `low_volume_pilot` preset in the app
 reproduces this.
 
 ![Caching costs money below the breakeven hit rate](docs/02-caching-trap.png)
@@ -51,15 +69,15 @@ Caching only touches the cacheable prefix. It cannot touch output, and output
 is priced at 5× input.
 
 Take the `coding_agent` preset — a 30K-token repo context re-read every turn,
-6K tokens of generation, on Opus 5:
+6K tokens of generation, on Opus 5.5:
 
 | Component | Annual |
 |---|---|
-| Cacheable prefix (30K tokens) | \$109,500 |
-| Variable input (3K tokens) | \$10,950 |
-| Output (6K tokens) | \$109,500 |
+| Cacheable prefix (30K tokens) | \$87,600 |
+| Variable input (3K tokens) | \$8,760 |
+| Output (6K tokens) | \$87,600 |
 
-A **90% hit rate on that prefix cuts the total bill by 37%, not 90%.** And note
+A **90% hit rate on that prefix cuts the total bill by 40%, not 90%.** And note
 the first and last rows: 6K tokens of output cost exactly as much as a 30K-token
 prefix re-read on every single turn. On output-heavy agent workloads, capping
 generation length is a bigger lever than caching — and it is the lever nobody
@@ -68,7 +86,7 @@ puts in the architecture diagram.
 ### 3. The Batch API is the largest single lever, and it costs only latency
 
 A flat 50% off input and output. On the `document_processing` preset — 20K
-nightly extractions on Sonnet 5 — that is **\$306,600 → \$153,300, a \$153,300
+nightly extractions on Sonnet 5.5 — that is **\$306,600 → \$153,300, a \$153,300
 annual saving** for work nobody is waiting on.
 
 The question is never "can we afford it." It is "does anyone need this answer
@@ -139,8 +157,13 @@ true, a test fails instead of this README quietly becoming wrong.
 
 ## Pricing data
 
-All figures from **<https://claude.com/pricing>**, retrieved **2026-09-07**,
-recorded in `pricing.py` alongside the date they were read.
+Dollar figures from **<https://claude.com/pricing>**; context windows from the
+**<https://platform.claude.com/docs/en/about-claude/models/overview>**, which is
+where they are actually published. Both retrieved **2026-10-05** and recorded in
+`pricing.py` alongside the date they were read.
+
+The lineup here is the one the pricing page lists as current. Opus 5 and
+Sonnet 5 moved to its legacy section on 2026-10-05 and are no longer carried.
 
 Prices change. A cost model that does not say when its numbers were taken is
 not a cost model, it is a screenshot. If the retrieval date above is old,

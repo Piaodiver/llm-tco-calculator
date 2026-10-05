@@ -75,7 +75,7 @@ model_id = st.sidebar.selectbox(
     "Primary model",
     options=pricing.DISPLAY_ORDER,
     format_func=lambda m: pricing.get(m).label,
-    index=pricing.DISPLAY_ORDER.index("claude-sonnet-5"),
+    index=pricing.DISPLAY_ORDER.index("claude-sonnet-5-5"),
 )
 
 workload = tco.Workload(
@@ -262,7 +262,9 @@ st.caption(
 
 with st.expander("Pricing data and assumptions"):
     st.markdown(
-        f"**Source:** [{pricing.SOURCE_URL}]({pricing.SOURCE_URL}) · **Retrieved:** {pricing.FETCHED_AT}\n\n"
+        f"**Prices:** [{pricing.SOURCE_URL}]({pricing.SOURCE_URL})\n\n"
+        f"**Context windows:** [{pricing.CONTEXT_SOURCE_URL}]({pricing.CONTEXT_SOURCE_URL})\n\n"
+        f"**Retrieved:** {pricing.FETCHED_AT}\n\n"
         f"{pricing.FETCHED_NOTE}\n\n"
         "**Assumptions this model makes:**\n"
         "- Cache-write figures are the 5-minute TTL rate; the 1-hour TTL costs more and is not modelled.\n"

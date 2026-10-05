@@ -91,7 +91,10 @@ def main() -> int:
 
         # 2. The caching trap: a low-volume pilot where caching costs money.
         select(page, 0, "Low-volume pilot")
-        select(page, 1, "Claude Opus 5")
+        # Exact label, not a prefix: `has_text` is a substring match, so
+        # "Claude Opus 5" would also match "Claude Opus 5.5" and silently pick
+        # whichever renders first.
+        select(page, 1, "Claude Opus 5.5")
         capture_section(
             page, OUT / "02-caching-trap.png",
             "Is prompt caching worth it here?", '[data-testid="stAlert"]',

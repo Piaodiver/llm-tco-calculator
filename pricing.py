@@ -11,13 +11,23 @@ off the official pricing page on FETCHED_AT -- none of it is from memory.
 from dataclasses import dataclass
 
 # --- Provenance -------------------------------------------------------------
-# Update all three of these together whenever you refresh the numbers.
-SOURCE_URL = "https://claude.com/pricing"
-FETCHED_AT = "2026-09-07"
+# Update these together whenever you refresh the numbers.
+#
+# Two sources, because the figures come from two places. The pricing page does
+# not publish per-model context windows, so citing it for them would be exactly
+# the kind of unsourced number this file exists to prevent.
+SOURCE_URL = "https://claude.com/pricing"                    # every dollar figure
+CONTEXT_SOURCE_URL = (                                        # context windows only
+    "https://platform.claude.com/docs/en/about-claude/models/overview"
+)
+FETCHED_AT = "2026-10-05"
 FETCHED_NOTE = (
-    "Read from the official pricing page. Cache-write figures are the 5-minute "
-    "TTL rate; a 1-hour TTL is offered at a higher rate that this model does "
-    "not yet cover."
+    "Dollar figures read from the pricing page; context windows from the models "
+    "overview, which is where they are actually published. Cache-write figures "
+    "are the 5-minute TTL rate; a 1-hour TTL is offered at a higher rate that "
+    "this model does not yet cover. The lineup below is the one the pricing page "
+    "lists as current -- Opus 5 and Sonnet 5 moved to its legacy section on "
+    "2026-10-05 and are no longer carried here."
 )
 
 # All prices are US dollars per 1,000,000 tokens.
@@ -65,18 +75,21 @@ class Model:
 
 
 MODELS = {
-    "claude-opus-5": Model(
-        id="claude-opus-5",
-        label="Claude Opus 5",
-        input=5.00,
-        output=25.00,
-        cache_read=0.50,
-        cache_write_5m=6.25,
+    "claude-opus-5-5": Model(
+        id="claude-opus-5-5",
+        label="Claude Opus 5.5",
+        input=4.00,
+        output=20.00,
+        # Note the ratio: a cache read is 5% of input here, where the other
+        # models sit at 10% (Fable 5.1 at 2.5%). That is why Opus 5.5 has its
+        # own breakeven and why these four no longer scale as one price curve.
+        cache_read=0.20,
+        cache_write_5m=5.00,
         context_window=1_000_000,
     ),
-    "claude-sonnet-5": Model(
-        id="claude-sonnet-5",
-        label="Claude Sonnet 5",
+    "claude-sonnet-5-5": Model(
+        id="claude-sonnet-5-5",
+        label="Claude Sonnet 5.5",
         input=2.00,
         output=10.00,
         cache_read=0.20,
@@ -106,8 +119,8 @@ MODELS = {
 # Order used wherever models are displayed as a list.
 DISPLAY_ORDER = [
     "claude-haiku-4-5",
-    "claude-sonnet-5",
-    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
     "claude-fable-5-1",
 ]
 
