@@ -1,3 +1,6 @@
 -r requirements.txt
-pytest>=8.3
-playwright>=1.47
+
+# Pinned for the same reason as the runtime deps. Playwright drives the
+# screenshot script against the system Chrome, so it needs no browser download.
+pytest==9.1.1
+playwright==1.62.0

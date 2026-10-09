@@ -47,6 +47,18 @@ class Workload:
         """Peak tokens in one request -- used to check it fits the window."""
         return self.total_input_tokens + self.output_tokens
 
+    @property
+    def has_cacheable_prefix(self) -> bool:
+        """Whether caching has anything at all to act on.
+
+        A workload with no stable prefix is a normal thing to describe -- plenty
+        of them are pure per-request input. But every statement the caching
+        analysis makes is then vacuous: savings are exactly zero, the hit rate
+        is a slider over nothing, and the breakeven rate describes a trade that
+        is not on offer. Callers should ask this before reporting any of it.
+        """
+        return self.cached_prefix_tokens > 0
+
 
 @dataclass(frozen=True)
 class CostBreakdown:
@@ -211,11 +223,20 @@ def describe_tokens(tokens: int, model_id: str) -> str:
 
     Deliberately coarse -- words to two significant figures, pages to the
     nearest half. Precision here would imply a tokenizer, and this is a ratio.
+
+    Returns an empty string when there is nothing worth restating: zero tokens
+    has no prose equivalent, and a handful rounds to "0 words", which reads as
+    a failed render rather than as a small number.
     """
+    if tokens <= 0:
+        return ""
+
     model = pricing.get(model_id)
     words = tokens * model.words_per_token
     pages = words / pricing.WORDS_PER_PAGE
 
+    if words < 10:
+        return "≈ under 10 words"
     if words < 1000:
         words_text = f"{round(words / 10) * 10:,.0f} words"
     else:

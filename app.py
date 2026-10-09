@@ -8,6 +8,7 @@ All arithmetic lives in tco.py; this file only renders.
 
 import altair as alt
 import pandas as pd
+from dataclasses import replace as _replace
 import streamlit as st
 
 import pricing
@@ -206,7 +207,7 @@ if not breakdown.fits_output_limit:
 # 1. The hit rate is below *this model's* breakeven, so caching loses money.
 #    Surfaced in full in the caching section below; flagged here because the
 #    headline figure above already has the loss baked into it.
-if use_caching and cache_hit_rate < model.cache_breakeven_hit_rate:
+if use_caching and workload.has_cacheable_prefix and cache_hit_rate < model.cache_breakeven_hit_rate:
     st.warning(
         f"**This hit rate is below breakeven.** {model.label} breaks even at "
         f"{model.cache_breakeven_hit_rate:.1%}; at {cache_hit_rate:.0%} the caching line above is "
@@ -216,7 +217,7 @@ if use_caching and cache_hit_rate < model.cache_breakeven_hit_rate:
 # 2. Batch and caching are being modelled together at a hit rate that a batch
 #    queue will not deliver. Independent of whether that rate is above
 #    breakeven -- the point is the rate itself is not achievable.
-if use_batch and use_caching and cache_hit_rate > 0:
+if use_batch and use_caching and workload.has_cacheable_prefix and cache_hit_rate > 0:
     st.warning(
         f"**Batch and caching together is optimistic.** The price sheet allows both, but batch jobs are "
         f"processed asynchronously over hours while the cache TTL is 5 minutes. A {cache_hit_rate:.0%} hit "
@@ -327,95 +328,110 @@ st.divider()
 
 st.subheader("Is prompt caching worth it here?")
 
-cache = tco.caching_savings(workload, model_id)
-breakeven = cache["breakeven_hit_rate"]
-
-# When caching is off, the hit-rate slider is greyed out -- but it still holds
-# a value, and this panel quietly prices "with caching" at that value. A reader
-# then gets a confident comparison against an assumption the UI is actively
-# hiding from them. Name the assumption instead.
-if not use_caching:
-    st.caption(
-        f"Caching is off for this workload, so the comparison below asks what *would* happen if "
-        f"you switched it on at a **{cache_hit_rate:.0%}** hit rate -- the value in the greyed-out "
-        f"slider. Enable caching to change it."
-    )
-
-k1, k2, k3 = st.columns(3)
-k1.metric("Without caching", money(cache["annual_without_caching"]))
-k2.metric(
-    "With caching", money(cache["annual_with_caching"]),
-    help=f"At a {cache_hit_rate:.0%} hit rate",
-)
-k3.metric(
-    "Difference", money(abs(cache["annual_savings"])),
-    delta=f"{-cache['savings_pct']:.0%}" if cache["annual_savings"] else None,
-    delta_color="inverse",
-)
-
-if cache["is_net_loss"]:
-    st.error(
-        f"**Caching is losing you {money(abs(cache['annual_savings']))} a year at this hit rate.** "
-        f"A cache write costs {model.cache_write_ratio:.2f}x a plain input token; a read costs "
-        f"{model.cache_read_ratio:.0%} of one. Below a **{breakeven:.1%}** hit rate you pay more in "
-        f"write premiums than you recover in reads."
+if not workload.has_cacheable_prefix:
+    # Nothing to cache, which is a normal way for a workload to be shaped. But
+    # every statement this section makes is then vacuous: savings are exactly
+    # zero, the hit-rate slider governs nothing, and the breakeven rate
+    # describes a trade that is not on offer. Rendering "caching saves $0 (0%)"
+    # in a success box above a flat curve and a breakeven marker reads as a
+    # broken panel -- and below breakeven it used to contradict a warning at the
+    # top of the page that fired on the hit rate without checking for content.
+    st.info(
+        "**Nothing in this workload is cacheable.** The cacheable prefix is 0 tokens, so prompt "
+        "caching has nothing to act on and cannot move the bill either way. The hit rate does not "
+        "matter here.\n\n"
+        "Caching pays only for content that repeats verbatim across requests -- a system prompt, "
+        "tool definitions, a policy document carried in context. If this workload does have a "
+        "stable head that you are currently counting under **Variable input**, move those tokens "
+        "to **Cacheable prefix** to see what caching would be worth."
     )
 else:
-    st.success(
-        f"Caching saves **{money(cache['annual_savings'])}** a year "
-        f"({cache['savings_pct']:.0%}). Breakeven for {model.label} is a **{breakeven:.1%}** hit rate."
+    cache = tco.caching_savings(workload, model_id)
+    breakeven = cache["breakeven_hit_rate"]
+
+    # When caching is off, the hit-rate slider is greyed out -- but it still holds
+    # a value, and this panel quietly prices "with caching" at that value. A reader
+    # then gets a confident comparison against an assumption the UI is actively
+    # hiding from them. Name the assumption instead.
+    if not use_caching:
+        st.caption(
+            f"Caching is off for this workload, so the comparison below asks what *would* happen if "
+            f"you switched it on at a **{cache_hit_rate:.0%}** hit rate -- the value in the greyed-out "
+            f"slider. Enable caching to change it."
+        )
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Without caching", money(cache["annual_without_caching"]))
+    k2.metric(
+        "With caching", money(cache["annual_with_caching"]),
+        help=f"At a {cache_hit_rate:.0%} hit rate",
+    )
+    k3.metric(
+        "Difference", money(abs(cache["annual_savings"])),
+        delta=f"{-cache['savings_pct']:.0%}" if cache["annual_savings"] else None,
+        delta_color="inverse",
     )
 
-# Sensitivity curve: cost against hit rate, with the breakeven marked.
-from dataclasses import replace as _replace
+    if cache["is_net_loss"]:
+        st.error(
+            f"**Caching is losing you {money(abs(cache['annual_savings']))} a year at this hit rate.** "
+            f"A cache write costs {model.cache_write_ratio:.2f}x a plain input token; a read costs "
+            f"{model.cache_read_ratio:.0%} of one. Below a **{breakeven:.1%}** hit rate you pay more in "
+            f"write premiums than you recover in reads."
+        )
+    else:
+        st.success(
+            f"Caching saves **{money(cache['annual_savings'])}** a year "
+            f"({cache['savings_pct']:.0%}). Breakeven for {model.label} is a **{breakeven:.1%}** hit rate."
+        )
 
-curve = pd.DataFrame([
-    {
-        "Hit rate": h / 100,
-        "Annual cost": tco.annual_cost(
-            _replace(workload, use_caching=True, cache_hit_rate=h / 100), model_id
-        ).annual,
-    }
-    for h in range(0, 101, 2)
-])
-baseline = cache["annual_without_caching"]
+    curve = pd.DataFrame([
+        {
+            "Hit rate": h / 100,
+            "Annual cost": tco.annual_cost(
+                _replace(workload, use_caching=True, cache_hit_rate=h / 100), model_id
+            ).annual,
+        }
+        for h in range(0, 101, 2)
+    ])
+    baseline = cache["annual_without_caching"]
 
-line = alt.Chart(curve).mark_line(strokeWidth=2).encode(
-    x=alt.X("Hit rate:Q", axis=alt.Axis(format="%"), title="Cache hit rate"),
-    y=alt.Y("Annual cost:Q", axis=alt.Axis(format="$,.0f"), title="Annual cost (USD)",
-            scale=alt.Scale(zero=False)),
-    tooltip=[alt.Tooltip("Hit rate:Q", format=".0%"), alt.Tooltip("Annual cost:Q", format="$,.0f")],
-)
-# These two rules carry the whole argument of this chart, so they have to stay
-# legible in both themes. Altair gets a literal colour -- it has no access to
-# Streamlit's theme tokens, so unlike the cost line above (which Streamlit
-# themes for us) anything hardcoded here is on its own.
-#
-# The previous values were "gray" and "firebrick", picked while developing
-# against the light theme. On the dark theme users actually get by default,
-# firebrick lands at 2.8:1 against #0E1117 -- under the 3:1 floor for non-text
-# marks, and that is before accounting for a 1px dashed stroke. The breakeven
-# marker, the single most important thing on the chart, was the least visible.
-#
-# #E03131 clears 3:1 on both grounds (4.2:1 dark, 4.5:1 light) rather than
-# being ideal on either, which beats branching on a theme the app cannot always
-# detect. Widths match the 2px cost line so the dashes actually read.
-BREAKEVEN_COLOR = "#E03131"
-BASELINE_COLOR = "#808080"   # 4.8:1 dark, 4.0:1 light -- already clears both
+    line = alt.Chart(curve).mark_line(strokeWidth=2).encode(
+        x=alt.X("Hit rate:Q", axis=alt.Axis(format="%"), title="Cache hit rate"),
+        y=alt.Y("Annual cost:Q", axis=alt.Axis(format="$,.0f"), title="Annual cost (USD)",
+                scale=alt.Scale(zero=False)),
+        tooltip=[alt.Tooltip("Hit rate:Q", format=".0%"), alt.Tooltip("Annual cost:Q", format="$,.0f")],
+    )
+    # These two rules carry the whole argument of this chart, so they have to stay
+    # legible in both themes. Altair gets a literal colour -- it has no access to
+    # Streamlit's theme tokens, so unlike the cost line above (which Streamlit
+    # themes for us) anything hardcoded here is on its own.
+    #
+    # The previous values were "gray" and "firebrick", picked while developing
+    # against the light theme. On the dark theme users actually get by default,
+    # firebrick lands at 2.8:1 against #0E1117 -- under the 3:1 floor for non-text
+    # marks, and that is before accounting for a 1px dashed stroke. The breakeven
+    # marker, the single most important thing on the chart, was the least visible.
+    #
+    # #E03131 clears 3:1 on both grounds (4.2:1 dark, 4.5:1 light) rather than
+    # being ideal on either, which beats branching on a theme the app cannot always
+    # detect. Widths match the 2px cost line so the dashes actually read.
+    BREAKEVEN_COLOR = "#E03131"
+    BASELINE_COLOR = "#808080"   # 4.8:1 dark, 4.0:1 light -- already clears both
 
-no_cache_rule = alt.Chart(pd.DataFrame({"y": [baseline]})).mark_rule(
-    strokeDash=[6, 4], color=BASELINE_COLOR, strokeWidth=2
-).encode(y="y:Q")
-breakeven_rule = alt.Chart(pd.DataFrame({"x": [breakeven]})).mark_rule(
-    strokeDash=[4, 3], color=BREAKEVEN_COLOR, strokeWidth=2
-).encode(x="x:Q")
+    no_cache_rule = alt.Chart(pd.DataFrame({"y": [baseline]})).mark_rule(
+        strokeDash=[6, 4], color=BASELINE_COLOR, strokeWidth=2
+    ).encode(y="y:Q")
+    breakeven_rule = alt.Chart(pd.DataFrame({"x": [breakeven]})).mark_rule(
+        strokeDash=[4, 3], color=BREAKEVEN_COLOR, strokeWidth=2
+    ).encode(x="x:Q")
 
-st.altair_chart(line + no_cache_rule + breakeven_rule, width="stretch")
-st.caption(
-    f"Solid line: annual cost with caching on, against hit rate. "
-    f"Grey dashed: cost with caching off. Red dashed: the **{breakeven:.1%}** breakeven. "
-    f"Everything left of the red line is a region where turning caching on makes the bill bigger."
-)
+    st.altair_chart(line + no_cache_rule + breakeven_rule, width="stretch")
+    st.caption(
+        f"Solid line: annual cost with caching on, against hit rate. "
+        f"Grey dashed: cost with caching off. Red dashed: the **{breakeven:.1%}** breakeven. "
+        f"Everything left of the red line is a region where turning caching on makes the bill bigger."
+    )
 
 st.divider()
 

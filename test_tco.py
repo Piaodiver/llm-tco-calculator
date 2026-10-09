@@ -247,6 +247,67 @@ def test_token_description_speaks_in_pages_not_tokens():
     assert "pages" not in tco.describe_tokens(100, "claude-sonnet-5-5")
 
 
+def test_a_workload_with_no_prefix_has_nothing_to_cache():
+    """Caching analysis is vacuous without a prefix, and must say so.
+
+    Savings are exactly zero, so `is_net_loss` is False and the old code
+    reported "caching saves $0 (0%)" in a success box -- while a warning above
+    it, keyed on the hit rate alone, said caching was costing money. Two
+    contradictory claims about a workload where caching does nothing at all.
+    """
+    w = replace(
+        tco.PRESETS["customer_support"],
+        cached_prefix_tokens=0, use_caching=True, cache_hit_rate=0.15,
+    )
+    assert not w.has_cacheable_prefix
+
+    result = tco.caching_savings(w, "claude-sonnet-5-5")
+    assert result["annual_savings"] == 0
+    assert not result["is_net_loss"]        # zero is not a loss...
+    assert result["savings_pct"] == 0       # ...and not a saving either
+
+    # The hit rate is below breakeven, which is exactly when the contradicting
+    # warning used to fire. has_cacheable_prefix is what now suppresses it.
+    assert w.cache_hit_rate < pricing.get("claude-sonnet-5-5").cache_breakeven_hit_rate
+
+    # And caching genuinely cannot move the bill in either direction.
+    on = tco.annual_cost(replace(w, use_caching=True), "claude-sonnet-5-5").annual
+    off = tco.annual_cost(replace(w, use_caching=False), "claude-sonnet-5-5").annual
+    assert on == off
+
+
+def test_token_description_is_empty_when_there_is_nothing_to_describe():
+    """"0 words" under an input reads as a failed render, not as a quantity."""
+    assert tco.describe_tokens(0, "claude-sonnet-5-5") == ""
+    assert tco.describe_tokens(-5, "claude-sonnet-5-5") == ""
+    # A handful of tokens rounds to zero words; say "under 10" instead.
+    assert tco.describe_tokens(1, "claude-sonnet-5-5") == "≈ under 10 words"
+    # No count may render as a literal zero, at any size, on any model.
+    for model_id in pricing.MODELS:
+        for n in range(1, 40):
+            assert tco.describe_tokens(n, model_id) != "≈ 0 words"
+
+
+def test_runtime_dependencies_are_pinned():
+    """Same discipline as FETCHED_AT, applied to the runtime.
+
+    A `>=` range hands the deployment to whatever resolves on build day, so a
+    demo that rebuilds on its own can stop matching the README with nobody
+    touching the repository. Two of these had already drifted a major version
+    past their declared floor before this was caught.
+    """
+    import pathlib
+
+    for name in ("requirements.txt", "requirements-dev.txt"):
+        path = pathlib.Path(__file__).parent / name
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("-r "):
+                continue
+            assert "==" in line, f"{name}: {line!r} is not pinned"
+            assert not any(c in line for c in "><~"), f"{name}: {line!r} is a range"
+
+
 def test_token_conversion_is_model_dependent():
     """Tokenizers differ by generation; the same count is not the same text.
 
