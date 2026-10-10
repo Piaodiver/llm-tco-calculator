@@ -2,6 +2,9 @@
 
 **What a Claude workload actually costs to run for a year — and which architectural decisions move that number.**
 
+**▶ [Try it live](https://llm-tco-calculator.streamlit.app/)** — no install; the
+three findings below each load the scenario that shows them.
+
 Most cost calculators multiply tokens by a price. That is the easy half. The
 useful half is knowing which levers are real, which are marginal, and which
 ones quietly make the bill *bigger* — and that is what this tool is built to
@@ -109,11 +112,19 @@ app warns when you combine them.
 
 ## Running it
 
+The deployed copy is at **<https://llm-tco-calculator.streamlit.app/>**, built
+from `main` on Python 3.13. To run it locally instead:
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+Dependencies are pinned exactly rather than given as ranges, for the same
+reason `pricing.py` records a retrieval date: a tool whose claim is that its
+numbers are reproducible should not hand its own runtime to whatever resolves
+on the day of the build.
 
 Tests:
 
